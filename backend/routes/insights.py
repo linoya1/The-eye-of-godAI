@@ -1,6 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from backend.models.schemas import Insight
-from backend.data.mock_data import MOCK_INSIGHTS
 from backend.db.supabase import get_supabase
 
 router = APIRouter()
@@ -8,13 +7,12 @@ router = APIRouter()
 @router.get("/insights", response_model=list[Insight], tags=["Insights"])
 def get_insights():
     """
-    Returns daily domain insight summaries.
-    Reads from Supabase if configured, otherwise falls back to mock data.
+    Returns daily domain insight summaries from Supabase.
     """
     db = get_supabase()
     
     if not db:
-        return [Insight(**i) for i in MOCK_INSIGHTS]
+        raise HTTPException(status_code=500, detail="Database connection not configured")
         
     try:
         # Join with domains table to get the human-readable domain name
@@ -40,4 +38,4 @@ def get_insights():
         
     except Exception as e:
         print(f"Error fetching insights from Supabase: {e}")
-        return []
+        raise HTTPException(status_code=500, detail="Failed to fetch insights from database")

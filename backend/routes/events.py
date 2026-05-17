@@ -1,7 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, Query
 from backend.models.schemas import Event
-from backend.data.mock_data import MOCK_EVENTS
 from backend.db.supabase import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -39,16 +38,12 @@ def map_db_event_to_pydantic(e: dict) -> Event:
 @router.get("/events", response_model=list[Event], tags=["Events"])
 def get_events(domain: str | None = Query(default=None, description="Filter by domain slug")):
     """
-    Returns AI events. Optionally filtered by domain slug.
-    Reads from Supabase if configured, otherwise falls back to mock data.
+    Returns AI events from Supabase. Optionally filtered by domain slug.
     """
     db = get_supabase()
     
     if not db:
-        events = [Event(**e) for e in MOCK_EVENTS]
-        if domain:
-            events = [e for e in events if domain in e.domains]
-        return events
+        raise HTTPException(status_code=500, detail="Database connection not configured")
 
     try:
         # We need to join sources and event_domains to get the full shape
@@ -76,26 +71,17 @@ def get_events(domain: str | None = Query(default=None, description="Filter by d
         
     except Exception as e:
         logger.error(f"Supabase connection/query failed in /events: {str(e)[:200]}")
-        logger.warning("Falling back to mock events due to error.")
-        
-        # Safe fallback
-        events = [Event(**e) for e in MOCK_EVENTS]
-        if domain:
-            events = [e for e in events if domain in e.domains]
-        return events
+        raise HTTPException(status_code=500, detail="Failed to fetch events from database")
 
 @router.get("/events/{event_id}", response_model=Event, tags=["Events"])
 def get_event(event_id: str):
     """
-    Returns a single event by ID.
+    Returns a single event by ID from Supabase.
     """
     db = get_supabase()
     
     if not db:
-        for e in MOCK_EVENTS:
-            if e["id"] == event_id:
-                return Event(**e)
-        raise HTTPException(status_code=404, detail=f"Event '{event_id}' not found.")
+        raise HTTPException(status_code=500, detail="Database connection not configured")
         
     try:
         response = db.table("events").select("*, sources(*), event_domains(domains(slug))").eq("id", event_id).execute()
