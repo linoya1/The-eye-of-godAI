@@ -59,14 +59,14 @@ p{color:var(--text-secondary)}
 .auth-card{width:100%;max-width:420px;padding:40px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);box-shadow:var(--shadow-card),var(--shadow-glow)}
 .auth-logo{text-align:center;margin-bottom:28px}
 .auth-logo .logo-icon{font-size:2.5rem;display:block;margin-bottom:8px}
-.auth-logo h2{font-size:1.3rem;background:var(--gradient-hero);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.auth-logo h2{font-size:1.3rem;background:var(--gradient-hero);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .auth-footer{text-align:center;margin-top:20px;font-size:.875rem;color:var(--text-secondary)}
 .auth-footer a{color:var(--accent-purple-bright);font-weight:500}
 
 .navbar{position:fixed;top:0;left:0;right:0;z-index:100;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;background:rgba(7,8,16,.8);backdrop-filter:blur(16px);border-bottom:1px solid var(--border-subtle)}
 .navbar-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1rem}
 .navbar-brand .brand-icon{font-size:1.4rem}
-.navbar-brand .brand-name{background:var(--gradient-hero);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.navbar-brand .brand-name{background:var(--gradient-hero);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .navbar-links{display:flex;align-items:center;gap:12px}
 
 .score-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:.72rem;font-weight:600;white-space:nowrap}
@@ -83,7 +83,7 @@ p{color:var(--text-secondary)}
 .event-source{font-size:.75rem;font-weight:600;color:var(--accent-cyan);text-transform:uppercase;letter-spacing:.05em}
 .event-credibility{font-size:.7rem;color:var(--text-muted)}
 .event-title{font-size:.97rem;font-weight:600;color:var(--text-primary);line-height:1.4}
-.event-summary{font-size:.82rem;color:var(--text-secondary);line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.event-summary{font-size:.82rem;color:var(--text-secondary);line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .event-scores{display:flex;flex-wrap:wrap;gap:6px}
 .event-domains{display:flex;flex-wrap:wrap;gap:5px}
 .domain-pill{font-size:.67rem;padding:2px 8px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.2);border-radius:12px;color:var(--accent-purple-bright)}
@@ -111,7 +111,7 @@ p{color:var(--text-secondary)}
 .hero-content{position:relative;z-index:1;max-width:720px}
 .hero-badge{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:20px;font-size:.78rem;font-weight:600;color:var(--accent-purple-bright);margin-bottom:24px}
 .hero-title{margin-bottom:20px}
-.gradient-text{background:var(--gradient-hero);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:block}
+.gradient-text{background:var(--gradient-hero);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;display:block}
 .hero-subtitle{font-size:1.1rem;color:var(--text-secondary);margin-bottom:36px;max-width:560px;line-height:1.7}
 .hero-actions{display:flex;gap:12px;flex-wrap:wrap}
 .hero-bg-glow{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.12) 0%,transparent 70%);top:-100px;right:-100px;pointer-events:none}
