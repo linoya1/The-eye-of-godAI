@@ -26,7 +26,7 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.error(f"Failed to initialize Supabase client: {e}")
         supabase = None
 else:
-    print("Warning: SUPABASE_URL or SUPABASE_KEY missing in .env. Using fallback data.")
+    logger.warning("SUPABASE_URL or SUPABASE_KEY missing in .env. Database connection not available.")
 
 def get_supabase() -> Client | None:
     """Returns the initialized Supabase client, or None if not configured."""
