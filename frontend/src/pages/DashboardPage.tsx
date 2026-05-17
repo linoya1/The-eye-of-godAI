@@ -3,7 +3,7 @@ import Navbar from '../components/Navbar';
 import EventCard from '../components/EventCard';
 import { fetchEvents, fetchDomains, fetchInsights } from '../api/client';
 import type { AIEvent, Domain, Insight } from '../types';
-
+import ScoreLegend from '../components/ScoreLegend';
 export default function DashboardPage() {
   const [events, setEvents] = useState<AIEvent[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -92,7 +92,9 @@ export default function DashboardPage() {
             )}
             {error && <div className="error-state">⚠️ {error}</div>}
             {!loading && !error && (
-              <div className="events-grid">
+              <>
+                <ScoreLegend />
+                <div className="events-grid">
                 {events.length === 0 ? (
                   <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>
                     No events found for this domain filter.
@@ -101,6 +103,7 @@ export default function DashboardPage() {
                   events.map(event => <EventCard key={event.id} event={event} />)
                 )}
               </div>
+              </>
             )}
           </main>
         </div>
