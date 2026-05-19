@@ -31,3 +31,82 @@ else:
 def get_supabase() -> Client | None:
     """Returns the initialized Supabase client, or None if not configured."""
     return supabase
+
+
+def check_event_exists_by_url(url: str) -> bool:
+    """
+    Check if an event with the given URL already exists in the database.
+    Used by ingestion pipeline for deduplication.
+    
+    Args:
+        url (str): Event URL to check
+    
+    Returns:
+        bool: True if event exists, False otherwise
+    
+    This is a SAFE deduplication check:
+    - If DB is down, returns False (allows insert attempt to fail gracefully)
+    - If URL is malformed, returns False (allows insert attempt)
+    - Only queries one row (SELECT id LIMIT 1 is fast)
+    """
+    db = get_supabase()
+    if not db:
+        logger.debug(f"Dedup check: Supabase not connected, allowing insert attempt")
+        return False
+    
+    try:
+        result = db.table("events").select("id").eq("url", url).limit(1).execute()
+        exists = len(result.data) > 0
+        if exists:
+            logger.debug(f"Dedup check: URL already exists in DB")
+        return exists
+    except Exception as e:
+        # Log but don't fail: if dedup check fails, allow insert attempt (fail-forward)
+        logger.warning(f"Dedup check failed for URL {url}: {e}")
+        return False
+
+
+def check_event_exists(url: str | None = None, title: str | None = None, published_at: str | None = None) -> bool:
+    """
+    Check if an event exists by URL, title, or published_at. Returns True if any match.
+
+    This performs safe, best-effort checks and never raises on DB errors (fail-forward).
+    """
+    db = get_supabase()
+    if not db:
+        logger.debug("Dedup check: Supabase not connected, allowing insert attempt")
+        return False
+
+    try:
+        # Check by URL first (fast, indexed)
+        if url:
+            res = db.table("events").select("id").eq("url", url).limit(1).execute()
+            if res.data:
+                logger.debug("Dedup check: URL already exists in DB")
+                return True
+
+        # Check by title
+        if title:
+            try:
+                res = db.table("events").select("id").eq("title", title).limit(1).execute()
+                if res.data:
+                    logger.debug("Dedup check: Title already exists in DB")
+                    return True
+            except Exception:
+                # Some DBs may store slightly different title encodings; ignore errors
+                pass
+
+        # Check by published_at (exact match)
+        if published_at:
+            try:
+                res = db.table("events").select("id").eq("published_at", published_at).limit(1).execute()
+                if res.data:
+                    logger.debug("Dedup check: published_at already exists in DB")
+                    return True
+            except Exception:
+                pass
+
+        return False
+    except Exception as e:
+        logger.warning(f"Dedup check failed: {e}")
+        return False
