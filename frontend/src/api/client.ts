@@ -25,3 +25,15 @@ export async function fetchInsights(): Promise<Insight[]> {
   const res = await api.get<Insight[]>('/insights');
   return res.data;
 }
+
+export async function getPreferences(token?: string): Promise<string[]> {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await api.get<{ user_id: string; interests: string[] }>('/api/me/preferences', { headers });
+  return res.data.interests || [];
+}
+
+export async function setPreferences(token: string, interests: string[]): Promise<{ user_id: string; interests: string[] }> {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await api.post<{ user_id: string; interests: string[] }>('/api/me/preferences', { interests }, { headers });
+  return res.data;
+}

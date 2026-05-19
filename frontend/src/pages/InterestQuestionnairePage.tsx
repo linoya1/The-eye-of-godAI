@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { fetchDomains } from '../api/client';
+import { fetchDomains, getPreferences, setPreferences } from '../api/client';
+import { supabase } from '../lib/supabase';
 import type { Domain } from '../types';
 
 export default function InterestQuestionnairePage() {
@@ -14,7 +15,27 @@ export default function InterestQuestionnairePage() {
     fetchDomains()
       .then(setDomains)
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(async () => {
+        setLoading(false);
+
+        try {
+          const { data } = await supabase.auth.getSession();
+          const session = (data as any)?.session;
+          const accessToken = session?.access_token;
+          console.debug('[DEBUG InterestQuestionnairePage] Session check:', { session: !!session, hasToken: !!accessToken, tokenLength: accessToken?.length });
+          if (!accessToken) {
+            console.info('Preferences: no active session found');
+            return;
+          }
+
+          console.info('Preferences: token found, loading saved interests');
+          const prefs = await getPreferences(accessToken);
+          console.info('Preferences: loaded', prefs);
+          setSelected(new Set(prefs));
+        } catch (e) {
+          console.error('Preferences: failed to load preferences', e);
+        }
+      });
   }, []);
 
   function toggleDomain(slug: string) {
@@ -27,12 +48,38 @@ export default function InterestQuestionnairePage() {
   }
 
   function handleSubmit() {
-    navigate('/dashboard');
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = (data as any)?.session;
+        const accessToken = session?.access_token;
+        console.debug('[DEBUG handleSubmit] Getting session for save:', { session: !!session, hasToken: !!accessToken });
+
+        if (!accessToken) {
+          console.info('Preferences: no active session, skipping save');
+          navigate('/dashboard');
+          return;
+        }
+
+        const interests = Array.from(selected.values());
+        console.debug('[DEBUG handleSubmit] About to save interests:', interests);
+        try {
+          const res = await setPreferences(accessToken, interests);
+          console.info('Preferences: saved', res.interests);
+        } catch (e) {
+          console.error('Preferences: backend error', e);
+        }
+      } catch (e) {
+        console.error('Preferences: failed to read session', e);
+      }
+
+      navigate('/dashboard');
+    })();
   }
 
   return (
     <>
-      <Navbar showAuth={false} />
+      <Navbar showAuth={true} />
       <div className="questionnaire-page container">
         <div className="questionnaire-header">
           <h1>What AI domains interest you?</h1>
