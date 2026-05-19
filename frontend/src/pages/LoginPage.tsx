@@ -1,22 +1,42 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import { supabase } from '../lib/supabase';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => { setLoading(false); navigate('/dashboard'); }, 700);
-  }
+    setError('');
 
+    try {
+      const { error: loginError } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      });
+
+      if (loginError) {
+        setError(loginError.message);
+        setLoading(false);
+        return;
+      }
+
+      // On successful login, redirect to dashboard
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setLoading(false);
+    }
+  }
   return (
     <>
       <Navbar showAuth={false} />
@@ -30,6 +50,7 @@ export default function LoginPage() {
           <p style={{ fontSize: '0.82rem', marginBottom: 24 }}>Sign in to your intelligence dashboard.</p>
 
           <form onSubmit={handleSubmit}>
+            {error && <div style={{ color: '#ef4444', marginBottom: 16, fontSize: '0.9rem' }}>{error}</div>}
             <div className="form-group">
               <label className="form-label">Email</label>
               <input className="form-input" type="email" name="email" placeholder="you@example.com" value={form.email} onChange={handleChange} required />

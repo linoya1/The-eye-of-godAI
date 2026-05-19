@@ -32,7 +32,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Navbar showAuth={false} />
+      <Navbar showAuth={true} />
       <div className="page container">
         <div className="section-header">
           <div>

@@ -76,7 +76,6 @@ def check_event_exists(url: str | None = None, title: str | None = None, publish
     if not db:
         logger.debug("Dedup check: Supabase not connected, allowing insert attempt")
         return False
-
     try:
         # Check by URL first (fast, indexed)
         if url:
@@ -109,4 +108,88 @@ def check_event_exists(url: str | None = None, title: str | None = None, publish
         return False
     except Exception as e:
         logger.warning(f"Dedup check failed: {e}")
+        return False
+
+def get_or_create_user_profile(auth_uid: str, email: str | None = None, full_name: str | None = None) -> dict | None:
+    """Get or create a user_profiles row for the given Supabase auth UID.
+
+    Returns the user_profiles row as a dict, or None if DB not configured/failed.
+    """
+    db = get_supabase()
+    if not db:
+        logger.debug("Supabase not connected: cannot get/create user profile")
+        return None
+
+    try:
+        # Try to find existing profile by auth_uid
+        print(f"[DEBUG supabase.py] Looking for existing profile: auth_uid={auth_uid}")
+        res = db.table('user_profiles').select('*').eq('auth_uid', auth_uid).limit(1).execute()
+        if res.data and len(res.data) > 0:
+            print(f"[DEBUG supabase.py] Found existing profile: {res.data[0]}")
+            return res.data[0]
+
+        # Insert new profile
+        payload = {'auth_uid': auth_uid, 'email': email, 'full_name': full_name}
+        print(f"[DEBUG supabase.py] Creating new profile: {payload}")
+        upsert = db.table('user_profiles').insert(payload).execute()
+        print(f"[DEBUG supabase.py] Insert response: {upsert.data}")
+        if upsert.data and len(upsert.data) > 0:
+            print(f"[DEBUG supabase.py] Profile created: {upsert.data[0]}")
+            return upsert.data[0]
+        print(f"[DEBUG supabase.py] Insert returned empty data")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to get or create user_profile for {auth_uid}: {e}")
+        print(f"[DEBUG supabase.py] Error creating profile: {e}")
+        return None
+
+
+def get_user_interests(user_id: str) -> list[str] | None:
+    """Return a list of domain_slugs for the given user_id."""
+    db = get_supabase()
+    if not db:
+        logger.debug("Supabase not connected: cannot get user interests")
+        return None
+
+    try:
+        res = db.table('user_interests').select('domain_slug').eq('user_id', user_id).execute()
+        if res.data is None:
+            return []
+        return [r['domain_slug'] for r in res.data]
+    except Exception as e:
+        logger.warning(f"Failed to fetch user_interests for {user_id}: {e}")
+        return None
+
+
+def set_user_interests(user_id: str, domain_slugs: list[str]) -> bool:
+    """Replace user interests for user_id with the provided list of domain_slugs.
+
+    This performs a transaction-like replace: delete existing and insert new.
+    Returns True on success.
+    """
+    db = get_supabase()
+    if not db:
+        logger.debug("Supabase not connected: cannot set user interests")
+        return False
+
+    try:
+        # Delete existing
+        print(f"[DEBUG supabase.py] Deleting existing interests for user_id={user_id}")
+        db.table('user_interests').delete().eq('user_id', user_id).execute()
+
+        # Insert new interests
+        inserts = []
+        for slug in domain_slugs:
+            inserts.append({'user_id': user_id, 'domain_slug': slug})
+
+        if inserts:
+            print(f"[DEBUG supabase.py] Inserting {len(inserts)} interests: {inserts}")
+            result = db.table('user_interests').insert(inserts).execute()
+            print(f"[DEBUG supabase.py] Insert result: {result.data}")
+
+        print(f"[DEBUG supabase.py] Interests set successfully for user_id={user_id}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to set user_interests for {user_id}: {e}")
+        print(f"[DEBUG supabase.py] Error setting interests: {e}")
         return False
