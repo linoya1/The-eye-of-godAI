@@ -80,6 +80,26 @@ export async function getPreferences(token?: string): Promise<string[]> {
   return res.data.interests || [];
 }
 
+export async function syncProfile(token: string): Promise<{
+  id: string;
+  auth_uid: string | null;
+  email: string | null;
+  full_name: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}> {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await api.post<{
+    id: string;
+    auth_uid: string | null;
+    email: string | null;
+    full_name: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }>('/api/me/profile/sync', {}, { headers });
+  return res.data;
+}
+
 export async function setPreferences(token: string, interests: string[]): Promise<{ user_id: string; interests: string[] }> {
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await api.post<{ user_id: string; interests: string[] }>('/api/me/preferences', { interests }, { headers });
