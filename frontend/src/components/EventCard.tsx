@@ -7,7 +7,7 @@ function formatDate(iso: string) {
 
 export default function EventCard({ event }: { event: AIEvent }) {
   return (
-    <article className="card event-card">
+    <article id={`event-${event.id}`} className="card event-card">
       <div className="event-card-header">
         <div>
           <div className="event-source">{event.source.name}</div>

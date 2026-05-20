@@ -1,34 +1,65 @@
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
-import EventCard from '../components/EventCard';
-import { fetchEvents, fetchDomains, fetchInsights } from '../api/client';
-import type { AIEvent, Domain, Insight } from '../types';
+import { fetchDomains, fetchEvents, fetchIntelligenceSummary } from '../api/client';
+import type { AIEvent, Domain, IntelligenceSummaryResponse } from '../types';
 import ScoreLegend from '../components/ScoreLegend';
+import EventCard from '../components/EventCard';
+import IntelligenceSummary from '../components/IntelligenceSummary';
+import TopResearchSignals from '../components/TopResearchSignals';
+
+
 export default function DashboardPage() {
   const [events, setEvents] = useState<AIEvent[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [intelligence, setIntelligence] = useState<IntelligenceSummaryResponse | null>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [intelLoading, setIntelLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [intelError, setIntelError] = useState<string | null>(null);
 
+  // Fetch domains + events (re-runs when filter changes)
   useEffect(() => {
+    let cancelled = false;
+    const domain = activeFilter ?? undefined;
+
     setLoading(true);
-    Promise.all([fetchDomains(), fetchInsights()])
-      .then(([d, i]) => { setDomains(d); setInsights(i); })
-      .catch(() => setError('Could not load domains. Is the backend running?'));
+    setError(null);
 
-    fetchEvents()
-      .then(setEvents)
-      .catch(() => setError('Could not load events. Is the backend running on port 8000?'))
-      .finally(() => setLoading(false));
-  }, []);
+    Promise.all([fetchDomains(), fetchEvents(domain)])
+      .then(([d, e]) => {
+        if (cancelled) return;
+        setDomains(d);
+        setEvents(e);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Could not load events. Is the backend running on port 8000?');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  useEffect(() => {
-    fetchEvents(activeFilter ?? undefined)
-      .then(setEvents)
-      .catch(() => {});
+    return () => { cancelled = true; };
   }, [activeFilter]);
+
+  // Fetch intelligence summary once (not filter-dependent)
+  useEffect(() => {
+    let cancelled = false;
+    setIntelLoading(true);
+    setIntelError(null);
+
+    fetchIntelligenceSummary()
+      .then(data => { if (!cancelled) setIntelligence(data); })
+      .catch(() => {
+        if (!cancelled)
+          setIntelError('Could not load intelligence summary from the backend.');
+      })
+      .finally(() => { if (!cancelled) setIntelLoading(false); });
+
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <>
@@ -63,27 +94,27 @@ export default function DashboardPage() {
                 {d.icon} {d.name}
               </button>
             ))}
-
-            {insights.length > 0 && (
-              <div style={{ marginTop: 28 }}>
-                <p className="sidebar-title">Today's Insights</p>
-                {insights.map(ins => (
-                  <div key={ins.domain_slug} className="card insight-panel">
-                    <div className="insight-domain">{ins.domain_name}</div>
-                    <p className="insight-text">{ins.summary_text}</p>
-                    <div className="momentum-bar">
-                      <span className="momentum-label">Momentum:</span>
-                      <span className={`momentum-value ${ins.momentum_delta >= 0 ? 'up' : 'dn'}`}>
-                        {ins.momentum_delta >= 0 ? '↑' : '↓'} {Math.abs(ins.momentum_delta * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </aside>
 
           <main className="dashboard-main">
+            {/* ── Intelligence Summary (3 backend analytics) ── */}
+            {intelLoading && (
+              <div className="intel-loading">
+                <div className="loading-spinner" />
+                Analysing your AI event database…
+              </div>
+            )}
+            {intelError && (
+              <div className="intel-error">⚠️ {intelError}</div>
+            )}
+            {!intelLoading && !intelError && intelligence && (
+              <IntelligenceSummary data={intelligence} />
+            )}
+
+            {/* ── Top Research Signals (curated, static) ── */}
+            <TopResearchSignals visibleEventIds={events.map(e => e.id)} />
+
+            {/* ── Event feed ── */}
             {loading && (
               <div className="loading-state">
                 <div className="loading-spinner" />
@@ -94,15 +125,19 @@ export default function DashboardPage() {
             {!loading && !error && (
               <>
                 <ScoreLegend />
-                <div className="events-grid">
+                <div className="event-feed-header">
+                  <h4 className="event-feed-title">Recent signal stream</h4>
+                  <span className="event-feed-count">{events.length} events</span>
+                </div>
                 {events.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>
-                    No events found for this domain filter.
-                  </p>
+                  <p className="event-feed-empty">No events found for this domain filter.</p>
                 ) : (
-                  events.map(event => <EventCard key={event.id} event={event} />)
+                  <div className="events-grid">
+                    {events.map(event => (
+                      <EventCard key={event.id} event={event} />
+                    ))}
+                  </div>
                 )}
-              </div>
               </>
             )}
           </main>

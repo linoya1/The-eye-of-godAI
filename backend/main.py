@@ -8,7 +8,7 @@ Think of this file as the "hub" — it pulls everything together but does no bus
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routes import health, domains, events, insights, users
+from backend.routes import analytics, health, domains, events, insights, users
 
 # --- Create the FastAPI app ---
 app = FastAPI(
@@ -36,4 +36,5 @@ app.include_router(health.router)
 app.include_router(domains.router)
 app.include_router(events.router)
 app.include_router(insights.router)
+app.include_router(analytics.router)
 app.include_router(users.router)
