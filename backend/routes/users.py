@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, status, Depends
 from pydantic import BaseModel
 import requests
 
-from backend.db.supabase import get_or_create_user_profile, get_user_interests, set_user_interests, get_supabase, SUPABASE_URL
+from backend.db.supabase import get_or_create_user_profile, get_user_interests, set_user_interests, get_supabase, SUPABASE_URL, SUPABASE_KEY
 
 router = APIRouter(prefix="/api/me", tags=["users"])
 
@@ -23,11 +23,22 @@ def get_current_user_from_token(request: Request) -> dict:
     token = auth.split(' ', 1)[1]
     print(f"[DEBUG users.py] Authorization header found, token length: {len(token)}")
 
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("[DEBUG users.py] Supabase URL/key missing for token validation")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Supabase not configured")
+
     # Call Supabase auth endpoint to validate token
     try:
         url = SUPABASE_URL.rstrip('/') + '/auth/v1/user'
         print(f"[DEBUG users.py] Validating token at {url}")
-        resp = requests.get(url, headers={'Authorization': f'Bearer {token}'}, timeout=5)
+        resp = requests.get(
+            url,
+            headers={
+                'Authorization': f'Bearer {token}',
+                'apikey': SUPABASE_KEY,
+            },
+            timeout=5,
+        )
         print(f"[DEBUG users.py] Token validation response: {resp.status_code}")
         if resp.status_code != 200:
             print(f"[DEBUG users.py] Token validation failed: {resp.text}")
@@ -56,6 +67,22 @@ def read_preferences(request: Request, user: dict = Depends(get_current_user_fro
         raise HTTPException(status_code=500, detail='Unable to fetch interests')
 
     return {'user_id': profile['id'], 'interests': interests}
+
+
+@router.post('/profile/sync')
+def sync_profile(request: Request, user: dict = Depends(get_current_user_from_token)):
+    """Ensure the authenticated Supabase user has a matching app profile row."""
+    auth_uid = user.get('id')
+    email = user.get('email')
+    full_name = user.get('user_metadata', {}).get('full_name') if user.get('user_metadata') else None
+    print(f"[DEBUG users.py] POST /profile/sync - auth_uid={auth_uid}, email={email}, full_name={full_name}")
+
+    profile = get_or_create_user_profile(auth_uid, email=email, full_name=full_name)
+    if not profile:
+        print("[DEBUG users.py] Failed to create/fetch profile during sync")
+        raise HTTPException(status_code=500, detail='Unable to synchronize user profile')
+
+    return profile
 
 
 @router.post('/preferences')

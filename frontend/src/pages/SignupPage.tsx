@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { supabase } from '../lib/supabase';
+import { syncProfile } from '../api/client';
 
 export default function SignupPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -18,7 +19,7 @@ export default function SignupPage() {
     setError('');
 
     try {
-      const { error: signupError } = await supabase.auth.signUp({
+      const { data, error: signupError } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
         options: {
@@ -34,6 +35,19 @@ export default function SignupPage() {
         setLoading(false);
         return;
       }
+
+      const accessToken = data.session?.access_token;
+      if (accessToken) {
+        try {
+          await syncProfile(accessToken);
+        } catch (syncError) {
+          setError(syncError instanceof Error ? syncError.message : 'Unable to synchronize profile after signup');
+          setLoading(false);
+          return;
+        }
+      }
+
+      setLoading(false);
 
       // On successful signup with email confirmation, show message
       // User will receive confirmation email and redirect back to /onboarding
