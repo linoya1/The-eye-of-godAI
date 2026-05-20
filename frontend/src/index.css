@@ -107,6 +107,32 @@ p{color:var(--text-secondary)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .error-state{text-align:center;padding:40px;color:var(--accent-red)}
 
+/* Temporary highlight when scrolled-to from a Research Signal card */
+@keyframes card-pulse {
+  0%   { border-color: rgba(251,191,36,0.70); box-shadow: 0 0 0 3px rgba(251,191,36,0.18), var(--shadow-card); }
+  60%  { border-color: rgba(251,191,36,0.55); box-shadow: 0 0 0 6px rgba(251,191,36,0.08), var(--shadow-card); }
+  100% { border-color: var(--border-subtle);  box-shadow: none; }
+}
+.event-card--highlight {
+  animation: card-pulse 1.6s ease-out forwards;
+}
+
+/* Research Signals 3-col grid */
+.research-signals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media(max-width:1024px) { .research-signals-grid { grid-template-columns: 1fr 1fr; } }
+@media(max-width:640px)  { .research-signals-grid { grid-template-columns: 1fr; } }
+
+
+.event-feed-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:0 2px}
+.event-feed-title{font-size:.88rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em}
+.event-feed-count{font-size:.72rem;color:var(--accent-cyan);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.event-feed-empty{color:var(--text-muted);font-size:.85rem;padding:32px 0;text-align:center}
+
+
 .hero{min-height:100vh;display:flex;align-items:center;position:relative;overflow:hidden}
 .hero-content{position:relative;z-index:1;max-width:720px}
 .hero-badge{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:20px;font-size:.78rem;font-weight:600;color:var(--accent-purple-bright);margin-bottom:24px}
