@@ -1,4 +1,4 @@
-# 👁️ The Eye of GodAI — AI Intelligence Dashboard
+# 👁️ The Eye of GodAI - AI Intelligence Dashboard
 
 The Eye of God AI is a deployed full-stack AI intelligence dashboard for monitoring high-signal developments across the AI ecosystem. It ingests AI-related articles and research updates, scores them with Groq-assisted analysis, stores structured events and signals in Supabase, and serves the results through a FastAPI backend and React/Vite frontend.
 
@@ -157,15 +157,23 @@ GitHub Actions workflow:
 
 ## 🖼️ Screenshots
 
-[Screenshot: Landing page]
+<img width="1287" height="758" alt="image" src="https://github.com/user-attachments/assets/accd9445-b9a2-4c64-8e27-e64899babf45" />
 
-[Screenshot: AI Intelligence Signals dashboard]
-
-[Screenshot: Top Research Signals section]
-
-[Screenshot: Events feed]
+<img width="777" height="742" alt="image" src="https://github.com/user-attachments/assets/331a1843-964b-48a1-9bc8-cb81d08b74e5" />
 
 [Screenshot: Onboarding domain selection]
+
+
+<img width="1896" height="902" alt="image" src="https://github.com/user-attachments/assets/b6f7dc5f-b716-4059-aceb-827297090cf2" />
+
+<img width="1221" height="505" alt="image" src="https://github.com/user-attachments/assets/95ce17db-340c-47d3-b905-725173f4308e" />
+
+<img width="1168" height="835" alt="image" src="https://github.com/user-attachments/assets/891c3aa1-7acb-4472-932f-e85ed3101dd4" />
+
+<img width="1222" height="650" alt="image" src="https://github.com/user-attachments/assets/cfc110e7-d813-4728-bc4d-045259f2c333" />
+
+<img width="1162" height="758" alt="image" src="https://github.com/user-attachments/assets/dd6691f4-4786-4524-b047-30d7ce54b101" />
+
 
 ## 💡 Technical Takeaways
 
