@@ -1,16 +1,15 @@
-# The Eye of God AI
-## Full-Stack AI Intelligence Dashboard
+# 👁️ The Eye of GodAI — AI Intelligence Dashboard
 
 The Eye of God AI is a deployed full-stack AI intelligence dashboard for monitoring high-signal developments across the AI ecosystem. It ingests AI-related articles and research updates, scores them with Groq-assisted analysis, stores structured events and signals in Supabase, and serves the results through a FastAPI backend and React/Vite frontend.
 
 It is deployed end-to-end as a portfolio project: the frontend runs on Vercel, the backend runs on Render, and Supabase provides authentication and persistence.
 
-## Live Demo
+## 🚀 Live Demo
 
 - Frontend: [the-eye-of-god-ai-frontend.vercel.app](https://the-eye-of-god-ai-frontend.vercel.app)
 - Backend API: [the-eye-of-godai-backend.onrender.com](https://the-eye-of-godai-backend.onrender.com)
 
-## What the Project Does
+## 🧠 Overview
 
 - Ingests AI-related articles and events from public sources.
 - Scores each event with backend-computed intelligence signals.
@@ -19,7 +18,7 @@ It is deployed end-to-end as a portfolio project: the frontend runs on Vercel, t
 - Displays a personalized dashboard with AI Intelligence Signals, Top Research Signals, and a browsable events feed.
 - Uses a manual GitHub Actions ingestion workflow for quality-controlled updates.
 
-## Key Implemented Features
+## 🧩 Key Features
 
 - AI events feed with filtering by domain.
 - Backend-computed AI Intelligence Signals derived from stored events.
@@ -30,7 +29,7 @@ It is deployed end-to-end as a portfolio project: the frontend runs on Vercel, t
 - Onboarding preferences saved to `user_interests`.
 - Manual GitHub Actions ingestion workflow for controlled data refreshes.
 
-## Architecture Overview
+## 🏗️ Architecture
 
 ```text
 Public AI sources -> Ingestion script -> Groq/LLM scoring -> Supabase
@@ -47,7 +46,7 @@ Public AI sources -> Ingestion script -> Groq/LLM scoring -> Supabase
 - Database/Auth: Supabase.
 - AI scoring: Groq-powered analysis plus backend-computed signal logic.
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 - Frontend: React, Vite, TypeScript
 - Backend: FastAPI, Python
@@ -57,7 +56,7 @@ Public AI sources -> Ingestion script -> Groq/LLM scoring -> Supabase
 - Deployment: Vercel (frontend), Render (backend)
 - Automation: GitHub Actions manual workflow
 
-## AI / Data Pipeline
+## 🔄 AI Data Pipeline
 
 The ingestion pipeline is intentionally manual to keep the event stream quality-controlled. The current ingestion entrypoint is `backend/ingest_anthropic.py`.
 
@@ -69,7 +68,7 @@ Pipeline flow:
 4. Persist structured events and scores in Supabase.
 5. Serve the computed intelligence data through the FastAPI API.
 
-## Intelligence Analytics
+## 📊 Intelligence Analytics
 
 The dashboard surfaces two distinct analytics layers:
 
@@ -78,7 +77,7 @@ The dashboard surfaces two distinct analytics layers:
 
 This split keeps the dashboard focused: one layer is computed from the live event stream, and the other is intentionally editorial.
 
-## Auth and Personalization
+## 🔐 Auth & Personalization
 
 The project uses Supabase Auth for signup and login. After authentication:
 
@@ -86,7 +85,7 @@ The project uses Supabase Auth for signup and login. After authentication:
 - Onboarding preferences are stored in `user_interests`.
 - The dashboard can tailor the event feed to the selected interests.
 
-## Deployment
+## 🚀 Deployment
 
 The project is deployed and functioning end-to-end:
 
@@ -100,7 +99,7 @@ Deployment notes:
 - Supabase Auth redirect URLs should include the deployed frontend URL.
 - Backend CORS should allow the deployed frontend origin.
 
-## How to Run Locally
+## ⚙️ Local Setup
 
 Backend:
 
@@ -120,7 +119,7 @@ npm install
 npm run dev
 ```
 
-## Environment Variables
+## ⚙️ Environment Variables
 
 Backend:
 
@@ -140,7 +139,7 @@ Notes:
 - In production, `VITE_API_URL` should be set to the deployed backend URL.
 - Example placeholder files are provided in `backend/.env.example` and `frontend/.env.example`.
 
-## Manual Ingestion
+## 🔄 Manual Ingestion
 
 Manual ingestion is part of the project design. It is used to keep the event stream quality-controlled instead of running on an automatic schedule.
 
@@ -156,7 +155,7 @@ GitHub Actions workflow:
 - Trigger: `workflow_dispatch` only
 - No scheduled trigger is configured
 
-## Screenshots
+## 🖼️ Screenshots
 
 [Screenshot: Landing page]
 
@@ -168,7 +167,7 @@ GitHub Actions workflow:
 
 [Screenshot: Onboarding domain selection]
 
-## What This Project Demonstrates Technically
+## 💡 Technical Takeaways
 
 - End-to-end full-stack delivery, from ingestion and scoring to presentation in the UI.
 - Backend API design with authenticated flows, profile sync, and persistent user preferences.
@@ -177,8 +176,9 @@ GitHub Actions workflow:
 - Deployment discipline across Vercel, Render, and Supabase with a manual ingestion workflow for quality control.
 - Engineering judgment in separating dynamic analytics from intentionally curated research highlights.
 
-## Additional Notes
+## 🧪 Validation Notes
 
-- The project intentionally avoids exposing secrets in the repository.
+- The deployed application has been validated end-to-end in production.
+- Local checks that remain useful: `python smoke_test.py` and `cd frontend && npm run build`.
+- The repository intentionally avoids exposing secrets.
 - `.env` files should contain only local values and private keys.
-- The deployed application is the source of truth for the current product experience.
