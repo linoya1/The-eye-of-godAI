@@ -377,6 +377,75 @@ Positive = domain is accelerating. Negative = cooling down.
 
 ---
 
+## Deployment & Environment (Required notes)
+
+**Implemented features**
+- AI events feed
+- Groq-powered ingestion
+- Supabase persistence
+- backend-computed AI Intelligence Signals
+- Top Research Signals
+- Supabase Auth signup/login
+- backend-owned profile sync
+- onboarding preferences saved to `user_interests`
+- manual GitHub Actions ingestion workflow
+
+**Ingestion entrypoint**
+- The ingestion script currently used is: `backend/ingest_anthropic.py`
+
+**Manual ingestion policy**
+- Ingestion is intentionally manual for data quality control.
+- Local command to run ingestion:
+
+```
+python backend/ingest_anthropic.py
+```
+
+- GitHub Actions manual workflow (run from the Actions UI):
+      `.github/workflows/manual-ingestion.yml`
+- There is no automatic schedule configured by default.
+
+**Environment variables**
+
+Backend (required):
+- `SUPABASE_URL` (example: https://abc.supabase.co)
+- `SUPABASE_SERVICE_ROLE_KEY` (service role key, keep secret)
+- `GROQ_API_KEY` (LLM / scoring API key)
+
+Frontend (required):
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_API_URL`
+
+Notes:
+- Locally, the frontend will fall back to `http://localhost:8000` when `VITE_API_URL` is not set (see `frontend/src/api/client.ts`).
+- In production, you must set `VITE_API_URL` to the deployed backend URL so the frontend can call the API.
+
+**Supabase setup — SQL grants (run in Supabase SQL editor)**
+
+Run these statements in your Supabase project to allow the `service_role` role to access the app tables used by backend-owned sync:
+
+```
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT SELECT, INSERT ON TABLE public.user_profiles TO service_role;
+GRANT SELECT, INSERT, DELETE ON TABLE public.user_interests TO service_role;
+GRANT SELECT ON TABLE public.domains TO service_role;
+```
+
+**Deployment checklist**
+- Deploy backend (e.g., Render, Railway, Fly, or self-host)
+- Add backend environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`)
+- Deploy frontend (e.g., Vercel)
+- Add frontend environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`)
+- Set `VITE_API_URL` in the frontend to the deployed backend URL
+- Update backend CORS configuration to include the deployed frontend URL (e.g., in `backend/main.py` CORS origins)
+- Add the deployed frontend URL to Supabase Auth redirect URLs (Auth → Settings → Redirect URLs)
+- Add GitHub repository Secrets for the manual ingestion workflow:
+      - `SUPABASE_URL`
+      - `SUPABASE_SERVICE_ROLE_KEY`
+      - `GROQ_API_KEY`
+
+
 ## 12. Open Questions for You
 
 Before implementation begins, please answer these:
