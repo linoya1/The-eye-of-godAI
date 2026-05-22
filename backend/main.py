@@ -23,7 +23,11 @@ app = FastAPI(
 # because they run on different ports (5173 vs 8000).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=[
+        "http://localhost:5173",  # Vite local dev
+        "http://localhost:5174",  # Vite fallback local port
+        "https://the-eye-of-god-ai-frontend.vercel.app",  # Vercel production frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
