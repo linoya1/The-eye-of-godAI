@@ -159,8 +159,6 @@ GitHub Actions workflow:
 
 <img width="1287" height="758" alt="image" src="https://github.com/user-attachments/assets/accd9445-b9a2-4c64-8e27-e64899babf45" />
 
-<img width="777" height="742" alt="image" src="https://github.com/user-attachments/assets/331a1843-964b-48a1-9bc8-cb81d08b74e5" />
-
 <img width="1102" height="822" alt="image" src="https://github.com/user-attachments/assets/55ef702e-41db-4d1e-b51e-95c442314ced" />
 
 <img width="1896" height="902" alt="image" src="https://github.com/user-attachments/assets/b6f7dc5f-b716-4059-aceb-827297090cf2" />
