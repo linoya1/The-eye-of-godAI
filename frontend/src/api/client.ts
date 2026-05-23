@@ -15,7 +15,18 @@ import type {
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const api = axios.create({ baseURL: BASE_URL, timeout: 10000 });
+const api = axios.create({ baseURL: BASE_URL, timeout: 60000 });
+
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.message.toLowerCase().includes('timeout'))) {
+      error.message = 'The backend is waking up. Please wait a few seconds and refresh.';
+    }
+
+    return Promise.reject(error);
+  },
+);
 
 export async function fetchEvents(domain?: string): Promise<AIEvent[]> {
   const params = domain ? { domain } : {};
