@@ -22,6 +22,7 @@ import time
 import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 import feedparser
 from groq import Groq
 from dotenv import load_dotenv
@@ -107,7 +108,8 @@ FEED_SOURCES = [
     },
 ]
 
-MAX_ARTICLES_PER_RUN = 1  # Production: 1 article per run (cost-efficient with Groq)
+MAX_ARTICLES_PER_RUN = 10  # Small controlled batch so duplicates can be skipped and the next new article can be found
+MAX_INSERTED_EVENTS_PER_RUN = 1  # Keep manual ingestion controlled by default
 GROQ_MODEL = "llama-3.1-8b-instant"  # Groq's free tier instant model
 GROQ_CALL_DELAY = 0.5  # Safety delay between API calls (seconds)
 
@@ -269,16 +271,74 @@ def clean_html(text: str) -> str:
     return text
 
 
+_RSS_NOISE_PREFIXES = (
+    "Announcements",
+    "Announcement",
+    "Engineering",
+    "News",
+    "Research",
+    "Blog",
+    "Update",
+    "Updates",
+)
+
+
+_LEADING_DATE_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
+    r"January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"\s+\d{1,2},\s+\d{4}|"
+    r"\d{4}-\d{2}-\d{2}"
+    r")(?:\s*[-–—:|]\s*|\s+)?",
+    re.IGNORECASE,
+)
+
+
+def _strip_leading_rss_noise(text: str) -> str:
+    """Remove obvious RSS date/category prefixes while keeping real titles intact."""
+    cleaned = _LEADING_DATE_RE.sub("", text).strip()
+
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _RSS_NOISE_PREFIXES:
+            pattern = rf"^\s*{re.escape(prefix)}(?=[A-Z0-9])"
+            if re.match(pattern, cleaned):
+                candidate = re.sub(pattern, "", cleaned, count=1).strip()
+                if len(candidate) >= 8:
+                    cleaned = candidate
+                    changed = True
+                    break
+
+    return cleaned.strip()
+
+
 def clean_title(title: str) -> str:
-    """Strip common malformed date/title concatenations from headlines."""
+    """Strip obvious RSS date/category noise from headlines."""
     if not title:
         return ""
-    # Remove trailing month-day-year patterns like ' - May 19, 2026' or '| May 19, 2026'
-    months = r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December'
-    title = re.sub(rf'\s*[\-|\|]\s*(?:{months})\s+\d{{1,2}},\s*\d{{4}}$', '', title)
-    # Remove ISO-like dates at end 'YYYY-MM-DD'
-    title = re.sub(r'\s*\d{4}-\d{2}-\d{2}$', '', title)
-    return title.strip()
+    original = clean_html(title)
+    cleaned = _strip_leading_rss_noise(original)
+    return cleaned if cleaned else original.strip()
+
+
+def detect_source_from_url(url: str, fallback_source_id: str | None = None, fallback_source_name: str | None = None) -> tuple[str | None, str | None]:
+    """Resolve source metadata from the article URL, with feed-derived fallbacks."""
+    parsed = urlparse(url or "")
+    hostname = (parsed.hostname or "").lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    if hostname == "anthropic.com" or hostname.endswith(".anthropic.com"):
+        return "s1", "Anthropic Research"
+    if hostname == "openai.com" or hostname.endswith(".openai.com"):
+        return "s6", "OpenAI Research"
+    if hostname in {"guardian.com", "theguardian.com"} or hostname.endswith(".guardian.com") or hostname.endswith(".theguardian.com"):
+        return "s4", "The Guardian"
+    if hostname == "reuters.com" or hostname.endswith(".reuters.com"):
+        return "s5", "Reuters"
+
+    return fallback_source_id, fallback_source_name
 
 def extract_article_content(entry) -> str:
     """Extract article content from RSS entry (content > summary > empty)."""
@@ -487,9 +547,8 @@ def validate_scores(scores: dict | None) -> bool:
 # ============================================================================
 
 def insert_event_to_supabase(title: str, summary: str, url: str, published_at: str, scores: dict, source_id: str = None) -> bool:
-    
-    if source_id is None:
-        source_id = "s4"  # Default fallback to OpenAI Blog
+    resolved_source_id, _ = detect_source_from_url(url, fallback_source_id=source_id)
+    source_id = resolved_source_id
     
     db = get_supabase()
     if not db:
@@ -570,32 +629,44 @@ def main():
         return
     
     # Initialize counters
-    fetched_count = len(entries)
-    filtered_count = 0  # Passed AI keyword filter
-    analyzed_count = 0  # Sent to LLM
-    inserted_count = 0
-    duplicate_count = 0
-    skipped_count = 0
-    failed_count = 0
+    articles_checked = 0
+    duplicates_skipped = 0
+    inserted_events = 0
+    skipped_articles = 0
+    failed_articles = 0
     source_used = None  # Track which source provided the article
     
     for i, entry in enumerate(entries, 1):
-        logger.info(f"\n[{i}/{fetched_count}] {entry.title[:70]}...")
+        logger.info(f"\n[{i}/{len(entries)}] Processing article")
+        articles_checked += 1
         
         # Get source metadata
-        source_id = getattr(entry, '_source_id', 's4')  # Default to OpenAI Blog
-        source_name = getattr(entry, '_source_name', 'OpenAI Blog')
-        if source_used is None:
-            source_used = source_name
-        
-        title = clean_title(entry.title)
+        fallback_source_id = getattr(entry, '_source_id', None)
+        fallback_source_name = getattr(entry, '_source_name', None)
+
+        raw_title = clean_html(entry.title)
+        title = clean_title(raw_title)
         url = entry.link
+        source_id, source_name = detect_source_from_url(
+            url,
+            fallback_source_id=fallback_source_id,
+            fallback_source_name=fallback_source_name,
+        )
+        if source_used is None:
+            source_used = source_name or fallback_source_name or 'Unknown'
+
+        logger.info(f"   🔗 URL: {url}")
+        logger.info(f"   🧾 Original title: {raw_title}")
+        if title != raw_title:
+            logger.info(f"   🧹 Cleaned title: {title}")
+        logger.info(f"   🧭 Source resolved: {source_name or fallback_source_name or 'Unknown'} ({source_id or 'unknown'})")
+
         published_at = entry.published if hasattr(entry, 'published') else datetime.now().isoformat()
         
         # Check for duplicate EARLY (before expensive Groq calls)
         if check_event_exists(url=url, title=title, published_at=published_at):
             logger.info("   ⏭️  Duplicate (already in DB)")
-            duplicate_count += 1
+            duplicates_skipped += 1
             continue
         
         # Extract article content from RSS entry
@@ -613,28 +684,25 @@ def main():
         # AI Relevance Filter: Check for AI keywords (keyword-based pre-filter)
         if not has_ai_keywords(title, summary):
             logger.info("   ⏭️  Skipped: No AI keywords")
-            skipped_count += 1
+            skipped_articles += 1
             continue
-        
-        filtered_count += 1
         
         # Relevance Gate: Ask LLM if this is a meaningful AI event (must be >= 7/10)
         if not check_relevance_gate(client, title, summary, url):
             logger.info("   ⏭️  Failed relevance gate")
-            skipped_count += 1
+            skipped_articles += 1
             time.sleep(GROQ_CALL_DELAY)
             continue
         
         # Score with Groq (count as analyzed after passing gates)
         scores = score_article_with_groq(client, title, summary, url)
-        analyzed_count += 1
         
         # Safety delay between Groq calls to respect rate limits
         time.sleep(GROQ_CALL_DELAY)
         
         # Validate scores
         if not validate_scores(scores):
-            failed_count += 1
+            failed_articles += 1
             continue
         
         # Sanitize summary and ensure it is not identical to the title
@@ -649,21 +717,24 @@ def main():
 
         # Insert to database with source metadata
         if insert_event_to_supabase(title, sanitized_summary, url, published_at, scores, source_id):
-            inserted_count += 1
+            inserted_events += 1
         else:
-            skipped_count += 1
+            skipped_articles += 1
+
+        if inserted_events >= MAX_INSERTED_EVENTS_PER_RUN:
+            break
     
     # Final Summary Report
     print(f"\n" + "="*70)
     print(f"✅ PIPELINE COMPLETE")
     print(f"   Source:      {source_used or 'None'}")
-    print(f"   Fetched:     {fetched_count}")
-    print(f"   Filtered:    {filtered_count} (passed AI keyword filter)")
-    print(f"   Analyzed:    {analyzed_count}")
-    print(f"   Inserted:    {inserted_count}")
-    print(f"   Duplicates:  {duplicate_count}")
-    print(f"   Skipped:     {skipped_count}")
-    print(f"   Failed:      {failed_count}")
+    print(f"   articles_checked:    {articles_checked}")
+    print(f"   duplicates_skipped:   {duplicates_skipped}")
+    print(f"   inserted_events:      {inserted_events}")
+    print(f"   skipped_articles:     {skipped_articles}")
+    print(f"   failed_articles:      {failed_articles}")
+    if inserted_events == 0:
+        print("No new events inserted; all checked articles were duplicates or skipped.")
     print("="*70 + "\n")
 
 if __name__ == "__main__":
