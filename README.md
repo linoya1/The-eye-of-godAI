@@ -141,19 +141,26 @@ Notes:
 
 ## 🔄 Manual Ingestion
 
-Manual ingestion is part of the project design. It is used to keep the event stream quality-controlled instead of running on an automatic schedule.
+Ingestion is intentionally manual and quality-controlled.
+The stable ingestion path is local execution from the development environment, which updates Supabase directly and is reflected in the live Vercel dashboard.
 
 Local command:
 
 ```bash
-python backend/ingest_anthropic.py
+PYTHONPATH=. python backend/ingest_anthropic.py
 ```
+
+Required environment variables:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GROQ_API_KEY`
 
 GitHub Actions workflow:
 
 - `.github/workflows/manual-ingestion.yml`
 - Trigger: `workflow_dispatch` only
-- No scheduled trigger is configured
+- Intended for optional future automation and experimentation, not as the primary documented ingestion path
 
 ## 🖼️ Screenshots
 
