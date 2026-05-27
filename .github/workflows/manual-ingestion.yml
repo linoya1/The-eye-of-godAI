@@ -23,7 +23,7 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Run ingestion script
-        run: python backend/ingest_anthropic.py
+        run: PYTHONPATH=. python backend/ingest_anthropic.py
         env:
           # These required secrets are expected to already exist in the repository settings.
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
