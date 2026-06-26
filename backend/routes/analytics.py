@@ -504,7 +504,7 @@ _ORG_KEYWORDS: dict[str, str] = {
     "cohere": "Cohere",
 }
 
-# Model families
+# Model families — keyword → display name (single source of truth)
 _MODEL_KEYWORDS: dict[str, str] = {
     "gpt-4o": "GPT-4o",
     "gpt-4": "GPT-4",
@@ -519,6 +519,18 @@ _MODEL_KEYWORDS: dict[str, str] = {
     "sora": "Sora",
     "dall-e": "DALL-E",
 }
+
+# Pre-compiled, word-boundary-anchored patterns derived from _MODEL_KEYWORDS.
+# Sorted longest-keyword-first so that a specific alias (e.g. "gpt-4o") is
+# evaluated before a shorter one it contains (e.g. "gpt-4").  Word boundaries
+# (\b) prevent substring false-positives such as:
+#   "phi" matching "philosophy" or "phishing"
+#   "gpt-4" matching text that only contains "gpt-4o"
+# re.escape handles hyphens and dots in keywords (gpt-4o, gpt-3.5, dall-e).
+_MODEL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE), display)
+    for kw, display in sorted(_MODEL_KEYWORDS.items(), key=lambda kv: -len(kv[0]))
+]
 
 
 def _fetch_all_events(db):
@@ -868,9 +880,14 @@ def _compute_lab_model_movement(events: list) -> dict:
                     org_data[display].append((bt, rk))
                     matched_org.add(display)
 
-        for kw, display in _MODEL_KEYWORDS.items():
-            if kw in text:
+        # Per-event dedup set: prevents the same display name from being
+        # counted more than once per event (e.g. if "claude" appears in both
+        # title and summary, or via two aliases for the same model family).
+        matched_model: set[str] = set()
+        for pattern, display in _MODEL_PATTERNS:
+            if display not in matched_model and pattern.search(text):
                 model_data[display].append((bt, rk))
+                matched_model.add(display)
 
     def _build_rows(data: dict[str, list[tuple[float, float]]], entity_type: str) -> list[dict]:
         rows = []
