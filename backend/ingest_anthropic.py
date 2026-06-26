@@ -108,9 +108,12 @@ FEED_SOURCES = [
     },
 ]
 
-MAX_ARTICLES_PER_RUN = 10  # Small controlled batch so duplicates can be skipped and the next new article can be found
+# Per-source candidate limit: prevents any single feed from monopolising the batch.
+# MAX_ARTICLES_PER_RUN is derived automatically so every source gets a fair slot.
+MAX_ARTICLES_PER_SOURCE = 3
+MAX_ARTICLES_PER_RUN = MAX_ARTICLES_PER_SOURCE * len(FEED_SOURCES)  # e.g. 3 × 8 = 24
 MAX_INSERTED_EVENTS_PER_RUN = 1  # Keep manual ingestion controlled by default
-GROQ_MODEL = "llama-3.1-8b-instant"  # Groq's free tier instant model
+GROQ_MODEL = "openai/gpt-oss-20b"  # Groq's recommended replacement model
 GROQ_CALL_DELAY = 0.5  # Safety delay between API calls (seconds)
 
 # AI Relevance Keywords - must contain at least one to proceed
@@ -175,36 +178,48 @@ def setup_groq_client():
 def fetch_rss_entries():
     """Fetch RSS entries from all configured sources (lightweight).
 
-    Behavior:
-    - Try `feedparser.parse` for each source.
-    - If `type` == "html_parse", attempt a lightweight HTML anchor extractor.
-    - Aggregate entries from all sources up to `MAX_ARTICLES_PER_RUN` total.
+    Strategy:
+    - Visit every source in FEED_SOURCES unconditionally.
+    - Collect at most MAX_ARTICLES_PER_SOURCE candidate entries from each source
+      using a source-local list (NOT the global aggregated list) so that an
+      already-full global list cannot prevent later sources from being read.
+    - Deduplicate candidates in memory by URL within the same run.
+    - Interleave results with round-robin ordering so no single source
+      dominates the final candidate list.
+    - Apply a safe global cap (MAX_ARTICLES_PER_RUN) only after interleaving.
+    - Preserve entry._source_id and entry._source_name on every entry.
     """
 
-    aggregated = []
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
 
-    for source in FEED_SOURCES:
-        if len(aggregated) >= MAX_ARTICLES_PER_RUN:
-            break
+    # Collect a per-source bucket of candidates first; do NOT gate on aggregated size.
+    source_buckets: list[list] = []  # one inner list per source
 
+    for source in FEED_SOURCES:
         logger.info(f"\n📡 Trying {source['name']}: {source['url'][:60]}...")
+        source_candidates: list = []
+
         try:
             feed = feedparser.parse(source['url'])
+            logger.info(f"   Found {len(feed.entries)} entries in {source['name']}")
+
             if feed.entries:
                 for entry in feed.entries:
+                    if len(source_candidates) >= MAX_ARTICLES_PER_SOURCE:
+                        break
                     entry._source_id = source["source_id"]
                     entry._source_name = source["name"]
-                    aggregated.append(entry)
-                    if len(aggregated) >= MAX_ARTICLES_PER_RUN:
-                        break
-                logger.info(f"   ✅ Fetched {len(feed.entries)} from {source['name']}")
-                continue
+                    source_candidates.append(entry)
+
+                logger.info(
+                    f"   Selected {len(source_candidates)} candidate(s) from {source['name']} "
+                    f"(limit={MAX_ARTICLES_PER_SOURCE})"
+                )
 
             # If no RSS entries and HTML parsing is allowed, try lightweight HTML parse
-            if source.get("type") == "html_parse":
+            elif source.get("type") == "html_parse":
                 try:
                     req = urllib.request.Request(source['url'])
                     for k, v in headers.items():
@@ -213,17 +228,17 @@ def fetch_rss_entries():
                         html = resp.read().decode('utf-8', errors='ignore')
 
                     # Simple anchor extractor: <a href="...">Title</a>
-                    pattern = r'<a[^>]+href=[\'\"](?P<href>[^\'\"]+)[\'\"][^>]*>(?P<text>[^<]{10,200})</a>'
+                    pattern = r'<a[^>]+href=[\'"](?P<href>[^\'">]+)[\'"][^>]*>(?P<text>[^<]{10,200})</a>'
                     matches = re.finditer(pattern, html, flags=re.IGNORECASE)
                     for m in matches:
+                        if len(source_candidates) >= MAX_ARTICLES_PER_SOURCE:
+                            break
                         href = m.group('href')
                         text = m.group('text').strip()
-                        # Skip short/generic
                         if len(text) < 20:
                             continue
                         url = href
                         if url.startswith('/'):
-                            # Make absolute
                             base = source['url'].rstrip('/')
                             url = base + url
                         entry = type('Entry', (), {
@@ -234,24 +249,56 @@ def fetch_rss_entries():
                         })()
                         entry._source_id = source["source_id"]
                         entry._source_name = source["name"]
-                        aggregated.append(entry)
-                        if len(aggregated) >= MAX_ARTICLES_PER_RUN:
-                            break
+                        source_candidates.append(entry)
 
-                    if aggregated:
-                        logger.info(f"   ✅ Extracted {len(aggregated)} articles from {source['name']} (html_parse)")
-                        continue
+                    logger.info(
+                        f"   Selected {len(source_candidates)} candidate(s) from {source['name']} (html_parse)"
+                    )
                 except Exception as e:
                     logger.warning(f"   ⏭️  HTML parse failed for {source['name']}: {e}")
 
-            logger.warning(f"   ⏭️  No entries in {source['name']}")
+            if not source_candidates:
+                logger.warning(f"   ⏭️  No entries found in {source['name']}")
 
         except Exception as e:
             logger.warning(f"   ⏭️  {source['name']} failed: {e}")
 
+        source_buckets.append(source_candidates)
+
+    # --- Round-robin interleaving: one entry from each source in rotation ---
+    # This ensures no source monopolises the start of the list.
+    aggregated: list = []
+    seen_urls: set[str] = set()
+    max_bucket_len = max((len(b) for b in source_buckets), default=0)
+
+    for slot in range(max_bucket_len):
+        for bucket in source_buckets:
+            if slot >= len(bucket):
+                continue
+            entry = bucket[slot]
+            url = getattr(entry, 'link', None) or ""
+            if url and url in seen_urls:
+                continue  # in-run URL deduplication
+            seen_urls.add(url)
+            aggregated.append(entry)
+            if len(aggregated) >= MAX_ARTICLES_PER_RUN:
+                break
+        if len(aggregated) >= MAX_ARTICLES_PER_RUN:
+            break
+
+    # Summarise per-source contribution
+    source_counts: dict[str, int] = {}
+    for entry in aggregated:
+        name = getattr(entry, '_source_name', 'Unknown')
+        source_counts[name] = source_counts.get(name, 0) + 1
+    for src_name, cnt in source_counts.items():
+        logger.info(f"   Added {cnt} unique candidate(s) from {src_name}")
+
+    logger.info(f"\n📊 Total candidates collected from all sources: {len(aggregated)}")
+
     if not aggregated:
         logger.error("❌ All sources exhausted, no articles found")
-    return aggregated[:MAX_ARTICLES_PER_RUN]
+    return aggregated
 
 # ============================================================================
 # FILTERING & CLEANING
@@ -360,13 +407,20 @@ def extract_article_content(entry) -> str:
     return ""
 
 def generate_summary_with_groq(client, title: str, content: str) -> str:
-    """Generate a concise 2-3 sentence summary from title + article content."""
-    
+    """Generate a concise 2-3 sentence summary from title + article content.
+
+    Uses reasoning_format="hidden" so that the reasoning model's internal
+    chain-of-thought is suppressed and only the final answer appears in
+    message.content.  Handles None/empty content defensively and falls back
+    to a content excerpt or title-based stub rather than returning empty.
+    """
+
+    # --- content fallback (no Groq call needed) ---
     if not content or len(content) < 20:
-        # Fallback: generate summary from title metadata if no content
+        logger.info("   ✍️  No article content; using title-based summary stub")
         return f"Latest update on {title.split(':')[0].lower()}. Check the source for complete details."
-    
-    prompt = f"""Generate a concise 2-3 sentence summary of this article. 
+
+    prompt = f"""Generate a concise 2-3 sentence summary of this article.
 Focus on:
 - What happened or what was discovered
 - Why it matters for AI/tech industry
@@ -380,24 +434,50 @@ TITLE: {title}
 CONTENT: {content}
 
 Return ONLY the summary text (no quotes, no markdown, just plain text)."""
-    
+
     try:
-        logger.info(f"   ✍️  Generating summary with Groq...")
+        logger.info(f"   ✍️  Generating summary with Groq ({GROQ_MODEL})...")
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,  # Slightly higher for natural language variation
-            max_tokens=300
+            temperature=0.5,
+            max_completion_tokens=400,  # enough room for final answer after reasoning
+            reasoning_effort="low",     # simple summarisation does not need deep reasoning
+            reasoning_format="hidden",  # suppress reasoning text from message.content
         )
-        
-        summary = response.choices[0].message.content.strip()
-        logger.info(f"   ✅ Summary generated ({len(summary)} chars)")
+
+        message = response.choices[0].message
+        content_raw = message.content or ""  # safe: message.content is Optional[str]
+        summary = content_raw.strip()
+
+        # Log diagnostic info (non-sensitive)
+        finish_reason = response.choices[0].finish_reason
+        usage = response.usage
+        token_info = (
+            f"prompt={usage.prompt_tokens}, completion={usage.completion_tokens}"
+            if usage else "usage=unavailable"
+        )
+        logger.info(
+            f"   ✅ Summary generated ({len(summary)} chars) | "
+            f"finish_reason={finish_reason} | {token_info}"
+        )
+
+        if not summary:
+            logger.warning(
+                "   ⚠️  Model returned empty content after reasoning suppression; "
+                "using content excerpt as fallback"
+            )
+            # Fallback to first 150 chars of article content (never reasoning text)
+            cleaned = content[:150].strip()
+            return cleaned + ("..." if len(content) > 150 else "")
+
         return summary
-        
+
     except Exception as e:
         logger.warning(f"   ⚠️  Summary generation failed: {e}")
-        # Fallback: return first 150 chars of content
-        return content[:150] + "..."
+        # Fallback: cleaned excerpt of article content
+        cleaned = content[:150].strip()
+        return cleaned + ("..." if len(content) > 150 else "")
 
 def has_ai_keywords(title: str, summary: str) -> bool:
     """Check if content contains AI-related keywords."""
@@ -412,8 +492,12 @@ def has_ai_keywords(title: str, summary: str) -> bool:
     return False
 
 def check_relevance_gate(client, title: str, summary: str, url: str) -> bool:
-    """Ask LLM if this is a meaningful AI intelligence event (must be >= 7/10)."""
-    
+    """Ask LLM if this is a meaningful AI intelligence event (must be >= 7/10).
+
+    Uses reasoning_format="hidden" to suppress reasoning text and return only
+    the final JSON answer in message.content.
+    """
+
     prompt = f"""Is this article about a meaningful AI intelligence event, breakthrough, or risk signal?
 Rate relevance to AI systems, capabilities, safety, or industry: 0-10 scale.
 
@@ -422,28 +506,36 @@ Summary: {summary[:500]}
 
 Return ONLY this JSON:
 {{"relevance_score": <float 0-10>, "reason": "<brief reason>"}}"""
-    
+
     try:
         logger.info(f"   🔍 Checking AI relevance gate...")
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=200
+            max_completion_tokens=200,
+            reasoning_effort="low",
+            reasoning_format="hidden",
         )
-        
-        response_text = response.choices[0].message.content
+
+        message = response.choices[0].message
+        response_text = (message.content or "").strip()
+
+        if not response_text:
+            logger.warning("   ⚠️  Relevance gate returned empty content; assuming relevant (fail-forward)")
+            return True
+
         relevance_data = json.loads(response_text)
         relevance_score = float(relevance_data.get("relevance_score", 0))
         reason = relevance_data.get("reason", "")
-        
+
         if relevance_score >= 7.0:
             logger.info(f"   ✅ Relevance gate passed: {relevance_score}/10 - {reason}")
             return True
         else:
             logger.info(f"   ⏭️  Relevance gate rejected: {relevance_score}/10 - {reason}")
             return False
-        
+
     except Exception as e:
         logger.warning(f"   ⚠️  Relevance check failed, assuming relevant: {e}")
         return True  # Fail-forward: if check fails, allow article
@@ -453,7 +545,12 @@ Return ONLY this JSON:
 # ============================================================================
 
 def score_article_with_groq(client, title: str, summary: str, url: str) -> dict | None:
-    
+    """Score an article with Groq and return a structured dict.
+
+    Uses reasoning_format="hidden" so the reasoning model's chain-of-thought
+    is not included in message.content; only the final JSON answer is returned.
+    """
+
     prompt = f"""You are an AI intelligence analyst. Analyze this article and return ONLY a JSON object (no markdown).
 
 Title: {title}
@@ -469,24 +566,32 @@ Return ONLY this JSON:
   "trend_momentum": <float -1.0 to 1.0>,
   "domain_slugs": <list of 1-2 from: ai-model-behavior, ai-software-engineering, ai-cyber-risk, ai-benchmarks, ai-agents, ai-safety-governance>
 }}"""
-    
+
     try:
         logger.info(f"   🤖 Calling Groq ({GROQ_MODEL})...")
-        # Use Groq Client API with messages interface
         response = client.chat.completions.create(
             model=GROQ_MODEL,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,  # Lower temperature for more deterministic JSON output
-            max_tokens=500
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_completion_tokens=600,  # enough for JSON after reasoning
+            reasoning_effort="low",
+            reasoning_format="hidden",
         )
-        
-        response_text = response.choices[0].message.content
+
+        message = response.choices[0].message
+        response_text = (message.content or "").strip()
+
+        if not response_text:
+            logger.warning("   ❌ Groq scoring returned empty content")
+            return None
+
         scores_json = json.loads(response_text)
-        logger.info(f"   ✅ Scores: breakthrough={scores_json.get('breakthrough_score')}, risk={scores_json.get('risk_signal')}")
+        logger.info(
+            f"   ✅ Scores: breakthrough={scores_json.get('breakthrough_score')}, "
+            f"risk={scores_json.get('risk_signal')}"
+        )
         return scores_json
-        
+
     except json.JSONDecodeError as e:
         logger.warning(f"   ❌ Invalid JSON from Groq: {e}")
         return None
@@ -634,7 +739,7 @@ def main():
     inserted_events = 0
     skipped_articles = 0
     failed_articles = 0
-    source_used = None  # Track which source provided the article
+    sources_attempted: set[str] = set()  # all source names seen across all candidates
     
     for i, entry in enumerate(entries, 1):
         logger.info(f"\n[{i}/{len(entries)}] Processing article")
@@ -652,8 +757,7 @@ def main():
             fallback_source_id=fallback_source_id,
             fallback_source_name=fallback_source_name,
         )
-        if source_used is None:
-            source_used = source_name or fallback_source_name or 'Unknown'
+        sources_attempted.add(source_name or fallback_source_name or 'Unknown')
 
         logger.info(f"   🔗 URL: {url}")
         logger.info(f"   🧾 Original title: {raw_title}")
@@ -727,7 +831,7 @@ def main():
     # Final Summary Report
     print(f"\n" + "="*70)
     print(f"✅ PIPELINE COMPLETE")
-    print(f"   Source:      {source_used or 'None'}")
+    print(f"   sources_attempted:    {len(sources_attempted)} — {', '.join(sorted(sources_attempted)) or 'None'}")
     print(f"   articles_checked:    {articles_checked}")
     print(f"   duplicates_skipped:   {duplicates_skipped}")
     print(f"   inserted_events:      {inserted_events}")

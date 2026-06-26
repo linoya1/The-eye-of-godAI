@@ -5,4 +5,4 @@ python-dotenv==1.0.1
 
 supabase==2.30.0
 feedparser==6.0.10
-groq==0.4.2
+groq==1.2.0
