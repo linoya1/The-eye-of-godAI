@@ -54,56 +54,61 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # These are maintained community-generated RSS feeds from Anthropic's non-RSS-native content
 FEED_SOURCES = [
     # Anthropic-focused sources (community-maintained, lightweight RSS)
+    # Fallback source_id = s1 (Anthropic Research). The URL resolver also maps
+    # any article URL on anthropic.com → s1, so this is consistent end-to-end.
     {
         "name": "Anthropic Research",
         "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml",
-        "source_id": "s5",
+        "source_id": "s1",  # s1 = Anthropic Research
         "type": "rss"
     },
     {
         "name": "Anthropic Engineering",
         "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml",
-        "source_id": "s5",
+        "source_id": "s1",  # s1 = Anthropic Research
         "type": "rss"
     },
     {
         "name": "Anthropic News",
         "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
-        "source_id": "s5",
+        "source_id": "s1",  # s1 = Anthropic Research
         "type": "rss"
     },
 
     # New high-quality AI sources (RSS preferred)
+    # Fallback IDs reference rows added by migration 2_add_feed_source_rows.sql.
     {
         "name": "Hugging Face Blog",
         "url": "https://huggingface.co/blog/feed.xml",
-        "source_id": "s7",
+        "source_id": "s9",  # s9 = Hugging Face Blog  (added in migration 2)
         "type": "rss"
     },
     {
         "name": "Google Research Blog",
         "url": "https://research.google/blog/",
-        "source_id": "s8",
+        "source_id": "s10",  # s10 = Google Research Blog  (added in migration 2)
         "type": "html_parse"  # Try HTML parse if RSS unavailable
     },
     {
         "name": "Google Blog",
         "url": "https://blog.google/rss/",
-        "source_id": "s9",
+        "source_id": "s11",  # s11 = Google Blog  (added in migration 2)
         "type": "rss"
     },
     {
         "name": "Made By Agents",
         "url": "https://www.madebyagents.com/rss",
-        "source_id": "s10",
+        "source_id": "s12",  # s12 = Made By Agents  (added in migration 2)
         "type": "rss"
     },
 
     # Fallback: OpenAI Blog
+    # Fallback source_id = s6 (OpenAI Research). The URL resolver also maps
+    # any article URL on openai.com → s6, so this is consistent end-to-end.
     {
         "name": "OpenAI Blog",
         "url": "https://openai.com/news/rss.xml",
-        "source_id": "s4",
+        "source_id": "s6",  # s6 = OpenAI Research
         "type": "rss"
     },
 ]
@@ -370,20 +375,40 @@ def clean_title(title: str) -> str:
 
 
 def detect_source_from_url(url: str, fallback_source_id: str | None = None, fallback_source_name: str | None = None) -> tuple[str | None, str | None]:
-    """Resolve source metadata from the article URL, with feed-derived fallbacks."""
+    """Resolve source metadata from the article URL, with feed-derived fallbacks.
+
+    Canonical hostname → (source_id, source_name) map.  IDs must exist in the
+    sources table; add new rows via a migration before adding new entries here.
+
+    Existing mappings (s1–s6) verified against the Supabase sources table.
+    New mappings (s9–s12) require migration 2_add_feed_source_rows.sql.
+    """
     parsed = urlparse(url or "")
     hostname = (parsed.hostname or "").lower()
     if hostname.startswith("www."):
         hostname = hostname[4:]
 
+    # --- Primary AI-lab sources (s1, s6) ---
     if hostname == "anthropic.com" or hostname.endswith(".anthropic.com"):
         return "s1", "Anthropic Research"
     if hostname == "openai.com" or hostname.endswith(".openai.com"):
         return "s6", "OpenAI Research"
+
+    # --- Major news publishers (s4, s5) ---
     if hostname in {"guardian.com", "theguardian.com"} or hostname.endswith(".guardian.com") or hostname.endswith(".theguardian.com"):
         return "s4", "The Guardian"
     if hostname == "reuters.com" or hostname.endswith(".reuters.com"):
         return "s5", "Reuters"
+
+    # --- Feed publishers added in migration 2_add_feed_source_rows.sql ---
+    if hostname == "huggingface.co" or hostname.endswith(".huggingface.co"):
+        return "s9", "Hugging Face Blog"
+    if hostname == "research.google" or hostname.endswith(".research.google"):
+        return "s10", "Google Research Blog"
+    if hostname == "blog.google" or hostname.endswith(".blog.google"):
+        return "s11", "Google Blog"
+    if hostname == "madebyagents.com" or hostname.endswith(".madebyagents.com"):
+        return "s12", "Made By Agents"
 
     return fallback_source_id, fallback_source_name
 
