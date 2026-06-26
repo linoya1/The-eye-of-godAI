@@ -29,6 +29,8 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 WINDOW_DAYS = 28
 MOMENTUM_WINDOW_DAYS = 7
+RISING_DOMAIN_WINDOW_DAYS = 30   # rolling window for Fastest-Rising AI Domain metric
+RISING_DOMAIN_OLD_ARTICLE_DAYS = 90  # exclude events whose published_at is older than this
 
 MODEL_TOKEN_PATTERNS: dict[str, re.Pattern[str]] = {
     "GPT": re.compile(r"\bgpt(?:-?4o|-?4|-?3\.5)?\b", re.IGNORECASE),
@@ -635,12 +637,47 @@ def _domain_signal_label(delta: float, recent_count: int) -> str:
     return "Slight uptick"
 
 
-def _compute_domain_momentum(events: list, domain_names: dict[str, str]) -> dict:
+def _compute_domain_momentum(db, domain_names: dict[str, str]) -> dict:
     """
-    Fastest-Rising AI Domain — top 1-3 strictly rising domains by momentum delta.
-    Each item carries a short signal_label instead of verbose prose.
+    Fastest-Rising AI Domain — compares the last 30 days (current) vs the
+    30 days before that (previous) using events.created_at so that recently
+    ingested articles are reflected immediately regardless of published_at.
+
+    Windows:
+      current  = [now - 30d, now]
+      previous = [now - 60d, now - 30d)
+
+    Age protection (optional):
+      Events whose published_at exists and is older than
+      RISING_DOMAIN_OLD_ARTICLE_DAYS are excluded.  Events with a NULL
+      published_at are kept.
+
+    Ranking rules:
+      1. Compute (current_count - previous_count) per domain.
+      2. A domain with current_count == 0 cannot be the top_domain.
+      3. If no domain has current events, return a neutral state.
     """
-    if not events:
+    now = datetime.now(timezone.utc)
+    cutoff_current  = now - timedelta(days=RISING_DOMAIN_WINDOW_DAYS)          # -30d
+    cutoff_previous = now - timedelta(days=RISING_DOMAIN_WINDOW_DAYS * 2)      # -60d
+    cutoff_old_article = now - timedelta(days=RISING_DOMAIN_OLD_ARTICLE_DAYS)  # -90d
+
+    # --- Fetch events with created_at and published_at from the last 60 days ---
+    # We need created_at (always present) + published_at (for age protection).
+    # Supabase gte/lte use ISO strings.
+    try:
+        resp = (
+            db.table("events")
+            .select("id, created_at, published_at, event_domains(domains(slug, name))")
+            .gte("created_at", cutoff_previous.isoformat())
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception:
+        rows = []
+
+    if not rows:
         return {
             "title": "Fastest-Rising AI Domain",
             "summary": "No events yet — domain momentum will appear once articles are ingested.",
@@ -648,47 +685,131 @@ def _compute_domain_momentum(events: list, domain_names: dict[str, str]) -> dict
             "runners_up": [],
         }
 
-    momentum_rows = _windowed_domain_momentum(events, domain_names)
-    rising = [r for r in momentum_rows if r.direction == "up"]
+    # --- Count events per domain per window, applying age protection ---
+    current_counts:  dict[str, int] = defaultdict(int)
+    previous_counts: dict[str, int] = defaultdict(int)
 
-    # Fall back to highest-delta flat domains if nothing is strictly rising
-    if not rising:
-        candidates = sorted(momentum_rows, key=lambda r: abs(r.delta), reverse=True)[:3]
-    else:
-        candidates = rising[:3]
+    for row in rows:
+        created_raw  = row.get("created_at") or ""
+        published_raw = row.get("published_at") or ""
 
-    def _to_item(r) -> dict:
-        return {
-            "name": r.name,
-            "slug": r.slug,
-            "direction": r.direction,
-            "delta": r.delta,
-            "recent_count": r.recent_count,
-            "signal_label": _domain_signal_label(r.delta, r.recent_count),
-        }
+        created_dt  = _parse_iso_date(created_raw)
+        if not created_dt:
+            continue
 
-    if not candidates:
+        # Age protection: skip events whose published_at is older than 90 days
+        if published_raw:
+            published_dt = _parse_iso_date(published_raw)
+            if published_dt and published_dt < cutoff_old_article:
+                continue  # too old — backfilled article, exclude
+
+        # Extract domain slugs from the join
+        slugs: list[str] = []
+        for ed in row.get("event_domains", []):
+            domain_obj = ed.get("domains") if ed else None
+            if domain_obj and domain_obj.get("slug"):
+                slugs.append(domain_obj["slug"])
+
+        if not slugs:
+            continue  # skip unlinked events
+
+        in_current  = created_dt >= cutoff_current
+        in_previous = cutoff_previous <= created_dt < cutoff_current
+
+        for slug in slugs:
+            if in_current:
+                current_counts[slug] += 1
+            elif in_previous:
+                previous_counts[slug] += 1
+
+    # --- Gather all domain slugs seen in either window ---
+    all_slugs = set(current_counts) | set(previous_counts)
+
+    if not all_slugs:
         return {
             "title": "Fastest-Rising AI Domain",
-            "summary": "Momentum is flat across all tracked domains this week.",
+            "summary": "No events yet — domain momentum will appear once articles are ingested.",
             "top_domain": None,
             "runners_up": [],
         }
 
-    top = candidates[0]
+    # --- Build scored rows ---
+    rows_scored: list[dict] = []
+    for slug in all_slugs:
+        cur  = current_counts.get(slug, 0)
+        prev = previous_counts.get(slug, 0)
+        delta = cur - prev
+        name  = domain_names.get(slug, slug)
+        rows_scored.append({
+            "slug":          slug,
+            "name":          name,
+            "current_count": cur,
+            "prev_count":    prev,
+            "delta":         delta,
+        })
+
+    # --- Rank: strictly rising (delta > 0, current > 0) first ---
+    rising = [
+        r for r in rows_scored
+        if r["delta"] > 0 and r["current_count"] > 0
+    ]
+    rising.sort(key=lambda r: (r["delta"], r["current_count"]), reverse=True)
+
+    # Neutral state: no domain has current events
+    has_any_current = any(r["current_count"] > 0 for r in rows_scored)
+    if not has_any_current:
+        return {
+            "title": "Fastest-Rising AI Domain",
+            "summary": (
+                "No new events have been ingested in the last 30 days. "
+                "Domain momentum will update once articles are processed."
+            ),
+            "top_domain": None,
+            "runners_up": [],
+        }
+
+    # Fall back to highest current_count flat domains if nothing is strictly rising
+    if not rising:
+        candidates = [
+            r for r in rows_scored if r["current_count"] > 0
+        ]
+        candidates.sort(key=lambda r: (r["current_count"], r["delta"]), reverse=True)
+        candidates = candidates[:3]
+        is_rising_mode = False
+    else:
+        candidates = rising[:3]
+        is_rising_mode = True
+
+    def _direction(r: dict) -> str:
+        if r["delta"] > 0:
+            return "up"
+        if r["delta"] < 0:
+            return "down"
+        return "flat"
+
+    def _to_item(r: dict) -> dict:
+        return {
+            "name":         r["name"],
+            "slug":         r["slug"],
+            "direction":    _direction(r),
+            "delta":        r["delta"],
+            "recent_count": r["current_count"],
+            "signal_label": _domain_signal_label(float(r["delta"]), r["current_count"]),
+        }
+
+    top       = candidates[0]
     runners_up = candidates[1:3]
 
-    # Summary: one crisp sentence about the leader
-    if rising:
+    if is_rising_mode:
         summary = (
-            f"{top.name} is the fastest-rising domain right now, "
-            f"up +{top.delta:.2f} momentum points vs the prior window "
-            f"({top.recent_count} recent event{'s' if top.recent_count != 1 else ''})."
+            f"{top['name']} is the fastest-rising domain in the last 30 days, "
+            f"up +{top['delta']} event{'s' if top['delta'] != 1 else ''} vs the prior 30-day window "
+            f"({top['current_count']} event{'s' if top['current_count'] != 1 else ''} ingested recently)."
         )
     else:
         summary = (
-            f"No domain shows a clear surge this week. "
-            f"{top.name} has the largest relative movement at {top.delta:+.2f}."
+            f"No domain shows a clear surge in the last 30 days. "
+            f"{top['name']} leads with {top['current_count']} event{'s' if top['current_count'] != 1 else ''} ingested."
         )
 
     return {
@@ -816,6 +937,7 @@ def get_intelligence_summary():
 
     return {
         "risk_breakthrough": _compute_risk_breakthrough(events),
-        "domain_momentum": _compute_domain_momentum(events, domain_names),
+        # domain_momentum now queries created_at directly for accurate 30-day windows
+        "domain_momentum": _compute_domain_momentum(db, domain_names),
         "lab_model_movement": _compute_lab_model_movement(events),
     }

@@ -243,7 +243,7 @@ function DomainRisingCard({ topDomain, runnersUp }: {
   runnersUp: DomainMomentumSectionItem[];
 }) {
   if (!topDomain) {
-    return <p style={{ fontSize: '0.80rem', color: '#475569', margin: 0 }}>No domain momentum data yet.</p>;
+    return <p style={{ fontSize: '0.80rem', color: '#475569', margin: 0 }}>No domain activity ingested in the last 30 days yet.</p>;
   }
 
   const all = [topDomain, ...runnersUp].slice(0, 3);
